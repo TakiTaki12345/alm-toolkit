@@ -6,34 +6,34 @@ from alm.core.curve import YieldCurve
 
 def test_zero_rate_at_sample_points():
     curve = YieldCurve(tenors=[1, 2, 5], rates=[0.02, 0.025, 0.03])
-    assert curve.zero_rate(1) == pytest.approx(0.02)
-    assert curve.zero_rate(2) == pytest.approx(0.025)
-    assert curve.zero_rate(5) == pytest.approx(0.03)
+    assert curve.zero_rate(1) == pytest.approx(0.02, abs=1e-9)
+    assert curve.zero_rate(2) == pytest.approx(0.025, abs=1e-9)
+    assert curve.zero_rate(5) == pytest.approx(0.03, abs=1e-9)
 
 
 def test_zero_rate_linear_interpolation():
     curve = YieldCurve(tenors=[1, 3], rates=[0.02, 0.04])
     # Midpoint t=2 should give the average rate 0.03.
-    assert curve.zero_rate(2) == pytest.approx(0.03)
+    assert curve.zero_rate(2) == pytest.approx(0.03, abs=1e-9)
 
 
 def test_zero_rate_flat_extrapolation():
     curve = YieldCurve(tenors=[1, 5], rates=[0.02, 0.03])
-    assert curve.zero_rate(0.5) == pytest.approx(0.02)  # below range
-    assert curve.zero_rate(10) == pytest.approx(0.03)   # above range
+    assert curve.zero_rate(0.5) == pytest.approx(0.02, abs=1e-9)  # below range
+    assert curve.zero_rate(10) == pytest.approx(0.03, abs=1e-9)   # above range
 
 
 def test_discount_factor_at_zero_is_one():
     #DF(0) = 1.
     curve = YieldCurve(tenors=[1, 5], rates=[0.02, 0.03])
-    assert curve.discount_factor(0) == pytest.approx(1.0)
+    assert curve.discount_factor(0) == pytest.approx(1.0, abs=1e-9)
 
 
 def test_discount_factor_formula():
     #DF(t) = exp(-r * t) under continuous compounding.
     curve = YieldCurve(tenors=[1, 5], rates=[0.03, 0.03])
     # DF(2) = exp(-0.03 * 2).
-    assert curve.discount_factor(2) == pytest.approx(np.exp(-0.03 * 2))
+    assert curve.discount_factor(2) == pytest.approx(np.exp(-0.03 * 2), abs=1e-9)
 
 
 def test_discount_factor_decreases_with_time():
