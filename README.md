@@ -16,6 +16,15 @@ The codebase follows a **src layout** with a strict one-way dependency rule: `ap
 
 程式碼採用 **src layout**，並遵守嚴格的單向依賴原則：`applications/` 依賴 `core/`，但 `core/` 永不依賴 `applications/`。核心提供與應用無關的基礎元件（曲線、現金流、定價、風險），應用層（如免疫化）則建構於其上。
 
+```text
+src/alm/
+├── core/                  # Application-agnostic primitives / 與應用無關的基礎元件
+│   ├── curve.py           # Yield curve & discounting / 殖利率曲線與折現
+│   ├── cashflow.py        # Cash flow representation & PV / 現金流表達與現值
+│   └── risk.py            # Duration & convexity / 存續期間與凸度
+└── applications/          # Built on top of core / 建構於核心之上
+    └── immunization.py    # Liability-driven immunization / 負債驅動的免疫化
+```
 
 ---
 
