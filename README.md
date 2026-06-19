@@ -71,6 +71,24 @@ Tests assert results within explicit tolerances rather than exact floating-point
 
 測試以明確的容差驗證結果，而非精確的浮點相等，因為 IEEE 754 運算使得精確相等既不可達成、也是錯誤的目標（`0.1 + 0.2 != 0.3`）。金融計算的正確性，是透過將誤差限制在有依據的容差內來建立的——而這本身正是模型驗證的核心工作之一。
 
+### 6. Cross-validating analytic formulas with numerical methods / 以數值方法交叉驗證解析公式
+
+Duration and convexity are implemented as closed-form analytic formulas, then independently verified against numerical differentiation of the present-value function (central differences). If the analytic formula were wrong, the numerical check would catch it. Validating a model against an independent method built on different principles is a core technique of model validation.
+
+存續期間與凸度以解析公式（封閉形式）實作，再以現值函數的數值微分（中央差分）獨立驗證。若解析公式有誤，數值檢驗會抓出來。用一個基於不同原理的獨立方法來驗證模型，正是模型驗證的核心技術。
+
+### 7. Separation of concerns: data, risk, and application / 關注點分離：資料、風險與應用
+
+The codebase keeps three concerns apart. `CashFlow` represents data — a stream of dated payments. `risk.py` provides analysis — duration and convexity as functions of a yield, kept separate because they depend on an external parameter (the yield level chosen by the analyst) rather than being intrinsic to the cash flow. The immunization application sits on top, consuming both. A lightweight `Bond` wrapper carries a cash flow and a yield, exposing PV, duration, and convexity, so the immunization solver can be written in the language of bonds rather than raw numbers — and its core stays a clean 2×2 linear system.
+
+程式碼將三種關注點分離。`CashFlow` 代表資料——一串帶日期的給付。`risk.py` 提供分析——以殖利率為自變數的存續期間與凸度，之所以獨立，是因為它們依賴一個外部參數（分析者選定的利率水準），而非現金流自帶的屬性。免疫化應用層位於其上，同時取用兩者。一個輕量的 `Bond` 包裝持有現金流與殖利率，對外提供現值、存續期間與凸度，使免疫求解器能以「債券」而非裸數字的語言來書寫——其核心因而維持為乾淨的 2×2 線性系統。
+
+### 8. Immunization as solve-then-verify, not just solve / 免疫化是「求解後驗證」，而非只求解
+
+The two-bond immunizer does not stop at solving the 2×2 system for the portfolio weights. It also reports whether the solution is *feasible* (both weights non-negative — equivalent to the liability's duration lying between the two bonds') and whether the *convexity condition* holds (asset convexity ≥ liability convexity, per Redington). A solver that silently returns a portfolio requiring short positions, or one that fails the convexity test, would be worse than useless in practice; the result object surfaces these diagnostics explicitly.
+
+兩債券免疫器不止於解出 2×2 系統的組合權重。它還會回報解是否*可行*（兩權重皆非負——等價於負債存續期間落在兩債券之間），以及*凸度條件*是否成立（依 Redington 理論，資產凸度 ≥ 負債凸度）。一個默默回傳「需要放空」組合、或未通過凸度檢驗的求解器，在實務上比沒用更糟；結果物件將這些診斷明確呈現出來。
+
 ---
 
 ## Development Note / 開發說明
