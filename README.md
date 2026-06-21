@@ -98,6 +98,18 @@ The two-bond immunizer does not stop at solving the 2×2 system for the portfoli
 
 兩債券免疫器不止於解出 2×2 系統的組合權重。它還會回報解是否*可行*（兩權重皆非負——等價於負債存續期間落在兩債券之間），以及*凸度條件*是否成立（依 Redington 理論，資產凸度 ≥ 負債凸度）。一個默默回傳「需要放空」組合、或未通過凸度檢驗的求解器，在實務上比沒用更糟；結果物件將這些診斷明確呈現出來。
 
+### 9. The right tool for the problem: linear programming / 為問題選對工具：線性規劃
+
+Immunization generalizes from two bonds (a 2×2 linear system) to N bonds, where two equality constraints leave N−2 degrees of freedom. That freedom is used to maximize portfolio convexity. Because the objective and both constraints are linear in the PV weights, the problem is a linear program, solved with `scipy.optimize.linprog` (HiGHS) rather than a general-purpose nonlinear optimizer. A dedicated LP solver guarantees the global optimum, needs no initial guess, and is numerically more stable on this structure — using a general `minimize` here would be a blunter tool for a problem with an exact one. The objective is kept replaceable, so a future nonlinear goal (e.g. minimizing surplus variance across scenarios) can be added without disturbing the linear core.
+
+免疫化從兩檔債券（2×2 線性系統）一般化到 N 檔，此時兩條等式約束留下 N−2 個自由度，這些自由度被用來最大化組合凸度。由於目標函數與兩條約束對現值權重而言皆為線性，此問題是一個線性規劃，以 `scipy.optimize.linprog`（HiGHS）求解，而非通用的非線性最佳化器。專用的 LP 求解器保證全域最優、不需初始猜測值、且在此結構上數值更穩定——在此改用通用的 `minimize` 等於用較鈍的工具去解一個有精確解法的問題。目標函數保持可替換，因此未來的非線性目標（如最小化跨情境的盈餘變異數）可以在不擾動線性核心的情況下加入。
+
+### 10. Redington vs. full immunization: local and global protection / Redington 與全免疫：局部與全域的保護
+
+Redington immunization protects against *small, parallel* rate moves: matching duration zeroes the first-order term of the surplus, and the convexity condition makes the second-order term non-negative — a local result holding near the current yield. Full immunization is stronger but more restrictive: a single liability bracketed by one earlier and one later cash flow is protected against parallel shifts of *any* size. The test suite encodes exactly this distinction — a dedicated test confirms that a bracketing two-bond portfolio keeps surplus non-negative even under a ±200bp shock, where a generic Redington portfolio offers no such global guarantee. Designing a test around the boundary between two theories is a deliberate validation of understanding, not just of code.
+
+Redington 免疫保護的是*微小、平行*的利率移動：匹配存續期間使盈餘的一階項歸零，凸度條件使二階項非負——這是在當前殖利率附近成立的局部結果。全免疫更強但更受限：一筆被「一前一後」兩筆現金流夾住的負債，可對*任意*大小的平行移動受到保護。測試套件正是把這個區別編寫進去——一個專門的測試確認「夾擠式」兩債券組合即使在 ±200 個基點的衝擊下仍維持盈餘非負，而一般的 Redington 組合並不提供這種全域保證。圍繞兩個理論的邊界來設計測試，是對「理解」而非僅對「程式碼」的刻意驗證。
+
 ---
 
 ## Development Note / 開發說明
