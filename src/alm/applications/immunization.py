@@ -1,18 +1,27 @@
-# Liability-driven immunization.
+"""Liability-driven immunization.
 
-"""
+Given a liability and a set of candidate bonds, find an allocation whose
+value moves in step with the liability as interest rates change, so the
+obligation stays funded under rate movements.
+
 Classical Redington immunization requires three conditions:
   1. PV match:        asset PV == liability PV
   2. Duration match:  asset duration == liability duration
   3. Convexity:       asset convexity >= liability convexity
 
-This module starts with the exact two-bond case (a 2x2 linear system,
-verifiable by hand) and reports whether the convexity condition holds.
+Conditions 1 and 2 are linear equality constraints. With N bonds that
+leaves N-2 degrees of freedom, which we use to *maximize* portfolio
+convexity (strengthening Redington's second-order protection). Since the
+objective and constraints are all linear in the PV weights, this is a
+linear program, solved with scipy.optimize.linprog.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+import numpy as np
+from scipy.optimize import linprog
 
 from alm.core.cashflow import CashFlow
 from alm.core.risk import (
@@ -22,10 +31,6 @@ from alm.core.risk import (
 )
 
 
-"""
-我用了 @dataclass——這是 Python 表達「純資料容器」的慣用法，自動生成 __init__、__repr__ 等，少寫樣板碼、意圖清晰。
-Bond 用 @property 讓 pv、duration、convexity 像屬性一樣存取（bond.duration 而非 bond.duration()），語意上它們是債券的性質，property 最貼切。
-"""
 @dataclass
 class Bond:
     """A bond viewed through its cash flows at a single flat yield.
@@ -51,60 +56,96 @@ class Bond:
 
 
 @dataclass
-class ImmunizationResult:
-    """The outcome of a two-bond immunization."""
+class PortfolioResult:
+    """The outcome of an N-bond immunization."""
 
-    weight_a: float          # amount (in PV terms) allocated to bond A
-    weight_b: float          # amount (in PV terms) allocated to bond B
-    asset_convexity: float   # PV-weighted convexity of the asset portfolio
+    weights: np.ndarray        # PV amount allocated to each bond
+    asset_convexity: float     # PV-weighted convexity of the portfolio
     liability_convexity: float
     convexity_satisfied: bool  # asset convexity >= liability convexity?
-    feasible: bool             # are both weights non-negative?
+    success: bool              # did the optimizer find a feasible solution?
+    message: str               # solver status message
 
 
-def immunize_two_bonds(
+def immunize(
     liability: CashFlow,
-    bond_a: Bond,
-    bond_b: Bond,
+    bonds: list[Bond],
     y: float,
-) -> ImmunizationResult:
-    """Solve the two-bond immunization problem.
+    allow_short: bool = False,
+) -> PortfolioResult:
+    """Immunize a liability with N bonds, maximizing portfolio convexity.
 
-    Finds w_a, w_b (PV amounts in each bond) such that:
-        w_a + w_b                 = PV_L          (PV match)
-        w_a*D_a + w_b*D_b         = PV_L * D_L    (duration match)
+    Solves the linear program:
 
-    which has the closed-form solution
-        w_a = PV_L * (D_L - D_b) / (D_a - D_b)
-        w_b = PV_L * (D_a - D_L) / (D_a - D_b)
+        maximize    sum_i w_i * C_i               (portfolio convexity * PV_L)
+        subject to  sum_i w_i        = PV_L       (PV match)
+                    sum_i w_i * D_i  = PV_L * D_L  (duration match)
+                    w_i >= 0                       (if allow_short is False)
 
-    The convexity condition is then *checked* (not solved), since two
-    equations in two unknowns leave no remaining degrees of freedom.
+    where w_i is the PV amount allocated to bond i, and C_i, D_i are that
+    bond's convexity and duration.
+
+    Parameters
+    ----------
+    liability : CashFlow
+        The obligation to immunize.
+    bonds : list[Bond]
+        Candidate bonds (at least two, with distinct durations).
+    y : float
+        The flat yield at which all measures are computed.
+    allow_short : bool, default False
+        If False, weights are constrained non-negative (no short selling).
+        If True, weights may be negative.
+
+    Returns
+    -------
+    PortfolioResult
     """
+    if len(bonds) < 2:
+        raise ValueError("immunization requires at least two bonds")
+
     pv_l = present_value_at_yield(liability, y)
     d_l = macaulay_duration(liability, y)
     c_l = convexity(liability, y)
 
-    d_a = bond_a.duration
-    d_b = bond_b.duration
+    durations = np.array([b.duration for b in bonds])
+    convexities = np.array([b.convexity for b in bonds])
 
-    if d_a == d_b:
-        raise ValueError(
-            "bonds must have distinct durations to span the liability"
+    # Objective: maximize sum_i w_i * C_i  ==  minimize  -sum_i w_i * C_i.
+    # (linprog minimizes c @ w, so we negate the convexity vector.)
+    c = -convexities
+
+    # Equality constraints: PV match and duration match.
+    A_eq = np.vstack([
+        np.ones(len(bonds)),  # sum w_i        = PV_L
+        durations,            # sum w_i * D_i  = PV_L * D_L
+    ])
+    b_eq = np.array([pv_l, pv_l * d_l])
+
+    # Bounds: lower bound 0 (no short) or -inf (short allowed).
+    lower = None if allow_short else 0.0
+    bounds = [(lower, None)] * len(bonds)
+
+    result = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method="highs")
+
+    if not result.success:
+        return PortfolioResult(
+            weights=np.full(len(bonds), np.nan),
+            asset_convexity=np.nan,
+            liability_convexity=c_l,
+            convexity_satisfied=False,
+            success=False,
+            message=result.message,
         )
 
-    w_a = pv_l * (d_l - d_b) / (d_a - d_b)
-    w_b = pv_l * (d_a - d_l) / (d_a - d_b)
+    weights = np.asarray(result.x, dtype=float)
+    asset_convexity = float(np.dot(weights, convexities) / pv_l)
 
-    # Asset portfolio convexity is the PV-weighted average of the two
-    # bonds' convexities (weights are PV shares).
-    asset_convexity = (w_a * bond_a.convexity + w_b * bond_b.convexity) / pv_l
-
-    return ImmunizationResult(
-        weight_a=w_a,
-        weight_b=w_b,
+    return PortfolioResult(
+        weights=weights,
         asset_convexity=asset_convexity,
         liability_convexity=c_l,
-        convexity_satisfied=asset_convexity >= c_l,
-        feasible=(w_a >= 0 and w_b >= 0),
+        convexity_satisfied=asset_convexity >= c_l - 1e-9,
+        success=True,
+        message=result.message,
     )
