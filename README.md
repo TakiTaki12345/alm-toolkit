@@ -24,6 +24,10 @@ src/alm/
 │   └── risk.py            # Duration & convexity / 存續期間與凸度
 └── applications/          # Built on top of core / 建構於核心之上
     └── immunization.py    # Liability-driven immunization / 負債驅動的免疫化
+
+notebooks/                 # Visual walkthroughs / 視覺化導覽
+├── 01_core.ipynb          # Curve, cash flow, risk / 曲線、現金流、風險
+└── 02_immunization.ipynb  # Immunization demo / 免疫化展示
 ```
 
 ---
