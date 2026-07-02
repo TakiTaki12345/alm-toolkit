@@ -1,30 +1,54 @@
-# Interest rate risk measures: duration and convexity.
+"""Interest rate risk measures: duration and convexity.
+
+These quantify how the present value of a cash flow stream responds to
+changes in interest rates, and are the foundation of immunization.
+
+Design note — why standalone functions here, rather than methods on
+CashFlow (as present_value is)? This is a deliberate separation of
+concerns. A stream's present value is its most intrinsic property, so it
+belongs on the object. Duration and convexity, by contrast, are a
+risk-analysis view and depend on an external parameter y — the yield level
+at which sensitivity is measured, which is the analyst's choice, not
+something the cash flow carries. Keeping them in a separate risk module
+splits "data representation" (cashflow) from "risk analysis" (risk). A
+future effective_duration will live here too, growing this into a complete
+risk toolkit. Both designs are defensible; this split extends more cleanly.
+
+All measures here are analytic sensitivities under a single flat yield y
+(continuous compounding), matching the textbook definition and easy to
+verify exactly.
+"""
+
 from __future__ import annotations
 
 import numpy as np
+
 from alm.core.cashflow import CashFlow
 
-"""
-為什麼這次用獨立函數，而不是像 present_value 那樣做成 CashFlow 的方法？ 
-這是個刻意的設計取捨，present_value 放進 CashFlow 是因為「一串現金流的現值」是現金流最核心、最內在的性質。
-但 duration/convexity 是風險分析的視角，而且它們吃一個外部參數 y（用哪個利率水準算敏感度，是分析者的選擇，不是現金流自帶的屬性）。
-把它們放在獨立的 risk.py 模組，能讓「資料表達（cashflow）」和「風險分析（risk）」這兩種關注點分開——這是關注點分離。
-未來 effective_duration 也會放這裡，risk 模組會長成一個完整的風險分析工具箱。
-這不是唯一正確答案（也有人會把它們做成 CashFlow 的方法），但這個切法在「擴充性」上更乾淨。
-"""
 
 def present_value_at_yield(cashflow: CashFlow, y: float) -> float:
-    # PV(y) = sum_i CF_i * exp(-y * t_i)
-    # CashFlow comes from lm.core.cashflow
+    """Present value discounted at a single flat yield y.
 
+    PV(y) = sum_i CF_i * exp(-y * t_i)
+
+    Distinct from CashFlow.present_value(curve), which uses a full term
+    structure; here a single yield gives duration and convexity a
+    well-defined point of differentiation.
+    """
     t = cashflow.times
     cf = cashflow.amounts
     return float(np.sum(cf * np.exp(-y * t)))
 
 
 def macaulay_duration(cashflow: CashFlow, y: float) -> float:
-    # D_mac = sum_i t_i * (CF_i * exp(-y * t_i)) / PV
+    """Macaulay duration: the PV-weighted average time to cash flow.
 
+    D_mac = sum_i t_i * (CF_i * exp(-y * t_i)) / PV
+
+    Interpreted as the average horizon (in years) over which present value
+    is recovered: a zero-coupon bond's equals its maturity; coupon-paying
+    instruments have shorter duration.
+    """
     t = cashflow.times
     cf = cashflow.amounts
     pv_weights = cf * np.exp(-y * t)
@@ -35,15 +59,26 @@ def macaulay_duration(cashflow: CashFlow, y: float) -> float:
 
 
 def modified_duration(cashflow: CashFlow, y: float) -> float:
-    # D_mod = -(1/PV) * dPV/dy
+    """Modified duration: relative sensitivity of PV to the yield.
 
-    # Under continuous compounding, modified duration equals Macaulay
+    D_mod = -(1/PV) * dPV/dy
+
+    Under continuous compounding, modified duration equals Macaulay
+    duration exactly (the discrete-compounding factor 1/(1+y/m) tends to 1).
+    Provided as a separate function for semantic clarity: a caller asking
+    for a risk sensitivity should not need to know it coincides with D_mac.
+    """
     return macaulay_duration(cashflow, y)
 
 
 def convexity(cashflow: CashFlow, y: float) -> float:
-    # C = (1/PV) * d2PV/dy2 = sum_i t_i^2 * (CF_i * exp(-y * t_i)) / PV
+    """Convexity: the PV-weighted average of t^2, the second-order measure.
 
+    C = (1/PV) * d2PV/dy2 = sum_i t_i^2 * (CF_i * exp(-y * t_i)) / PV
+
+    Mirrors duration but weights by t^2 instead of t, capturing the
+    curvature of the PV-yield relationship that duration alone misses.
+    """
     t = cashflow.times
     cf = cashflow.amounts
     pv_weights = cf * np.exp(-y * t)

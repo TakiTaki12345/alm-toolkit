@@ -2,21 +2,26 @@ from __future__ import annotations
 
 import numpy as np
 
-'''
-把資料和操作綁在一起，未來要加 IRR、duration、convexity 這些功能時，它們都自然地成為 CashFlow 的方法，
-使用者一個物件就能取用所有相關計算，不用記一堆散落的函數。
-IRR 是一個好例子，因為 IRR 確實是「現金流自己的性質」，放在類別裡語意最通順。
-這就是物件導向裡「高內聚」的概念。
-'''
 
 class CashFlow:
-    """
-    A stream of dated cash flows.
+    """A stream of dated cash flows.
 
-    ----------Parameters----------
-    times : array
-        Times in years at which cash flows occur. Non-negative.
-    amounts : array
+    Both assets (e.g. bonds) and liabilities (e.g. annuity payments) are
+    expressed as cash flow streams, making this the common currency of the
+    whole toolkit.
+
+    Design note — data and operations are bound together in one object so
+    that valuation logic (present value, and later IRR, duration) lives as
+    methods on the stream it acts on. IRR, for instance, is an intrinsic
+    property of a cash flow, so it reads most naturally as a method. This
+    is the object-oriented principle of high cohesion. Internally the data
+    is held as parallel NumPy arrays so those operations stay vectorized.
+
+    Parameters
+    ----------
+    times : array-like
+        Times in years at which cash flows occur. Must be non-negative.
+    amounts : array-like
         Cash flow amounts. Positive = inflow, negative = outflow.
     """
 
@@ -24,6 +29,8 @@ class CashFlow:
         times = np.asarray(times, dtype=float)
         amounts = np.asarray(amounts, dtype=float)
 
+        # Validate on construction so every method downstream can trust the
+        # data is well-formed (strict on genuine errors).
         if times.ndim != 1 or amounts.ndim != 1:
             raise ValueError("times and amounts must be one-dimensional")
         if times.shape != amounts.shape:
@@ -33,18 +40,23 @@ class CashFlow:
         if np.any(times < 0):
             raise ValueError("times must be non-negative")
 
-        # Sort times and amounts simultaneously in ascending order of times
-        # Ensure times and amounts are sorted in ascending order.
+        # Sort chronologically. Out-of-order input is a matter of convenience,
+        # not an error, so we quietly fix it (forgiving on harmless disorder)
+        # and let downstream logic assume chronological order.
         order = np.argsort(times)
         self.times = times[order]
         self.amounts = amounts[order]
 
     def __repr__(self):
-        # Return a string representation of the CashFlow object.
         return f"CashFlow(times={self.times.tolist()}, amounts={self.amounts.tolist()})"
 
     def present_value(self, curve):
-        # Return the present value.
-        # PV = sum_i  amount_i * discount_factor(time_i)
+        """Present value of the stream under a given yield curve.
+
+        PV = sum_i amount_i * discount_factor(time_i)
+
+        The curve is passed in rather than held as state (dependency
+        injection), keeping CashFlow agnostic to how discounting is done.
+        """
         discount_factors = curve.discount_factor(self.times)
         return float(np.sum(self.amounts * discount_factors))
