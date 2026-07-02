@@ -74,3 +74,10 @@ def test_rejects_out_of_range_node():
     tree = make_tree(n_steps=2)
     with pytest.raises(ValueError):
         tree.short_rate(1, 5)  # j=5 doesn't exist at step 1
+
+def test_rejects_non_positive_factors():
+    """Negative rates come from a negative r0, never a negative factor."""
+    with pytest.raises(ValueError):
+        RateTree(r0=0.05, u=1.1, d=-0.9, n_steps=3)
+    with pytest.raises(ValueError):
+        RateTree(r0=0.05, u=1.1, d=0.0, n_steps=3)

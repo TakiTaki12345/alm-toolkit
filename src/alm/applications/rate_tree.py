@@ -58,12 +58,18 @@ class RateTree:
     n_steps: int
     p: float = 0.5
     dt: float = 1.0
-    rates: list = field(default_factory=list, repr=False)
+    rates: list[np.ndarray] = field(default_factory=list, repr=False)
 
     def __post_init__(self):
         # Validate: probabilities and factors must be economically sensible.
         if not (0.0 <= self.p <= 1.0):
             raise ValueError("p must be a probability in [0, 1]")
+        # Rates evolve by multiplicative factors, so u and d must be positive.
+        # Negative rates are legitimate but are expressed through a negative
+        # r0, never through a negative factor — a negative d would make
+        # d**(i-j) oscillate in sign and produce nonsensical rates silently.
+        if self.u <= 0 or self.d <= 0:
+            raise ValueError("u and d must be positive")
         if self.u <= self.d:
             raise ValueError("up factor u must exceed down factor d")
         if self.n_steps < 1:
@@ -97,3 +103,20 @@ class RateTree:
         """Total number of nodes: (n+1)(n+2)/2, the recombining count."""
         n = self.n_steps
         return (n + 1) * (n + 2) // 2
+
+    def __repr__(self):
+        return (f"RateTree(n_steps={self.n_steps}, r0={self.r0:.4f}, "
+                f"u={self.u:.4f}, d={self.d:.4f}, p={self.p})")
+
+    def as_dense(self) -> np.ndarray:
+        """Dense (n+1)x(n+1) view for printing or plotting.
+
+        Entries above the diagonal (j > i, non-existent nodes) are NaN. This
+        is a one-off convenience view; pricing never routes through it, so the
+        efficient ragged triangular storage remains the working representation.
+        """
+        n = self.n_steps
+        dense = np.full((n + 1, n + 1), np.nan)
+        for i, row in enumerate(self.rates):
+            dense[i, :i + 1] = row
+        return dense

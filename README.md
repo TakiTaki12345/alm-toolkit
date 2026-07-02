@@ -23,7 +23,8 @@ src/alm/
 │   ├── cashflow.py        # Cash flow representation & PV / 現金流表達與現值
 │   └── risk.py            # Duration & convexity / 存續期間與凸度
 └── applications/          # Built on top of core / 建構於核心之上
-    └── immunization.py    # Liability-driven immunization / 負債驅動的免疫化
+    ├── immunization.py    # Liability-driven immunization / 負債驅動的免疫化
+    └── rate_tree.py       # Binomial short-rate tree / 二叉短期利率樹
 
 notebooks/                 # Visual walkthroughs / 視覺化導覽
 ├── 01_core.ipynb          # Curve, cash flow, risk / 曲線、現金流、風險
@@ -122,9 +123,9 @@ The forward rate for a future period is not independent data — it is implied b
 
 ### 12. Recombining binomial tree: quadratic, not exponential / 重合二叉樹:平方級而非指數級
 
-Pricing rate-sensitive instruments (e.g. callable bonds) needs a model of how rates evolve. A binomial short-rate tree provides one — and making it *recombining* (up-then-down lands on the same node as down-then-up, since `r·u·d = r·d·u`) collapses the node count from `2^n` to `(n+1)(n+2)/2 ≈ n²/2`. That is the difference between a 30-step tree having a billion nodes versus a few hundred, and it lets the tree be stored as a simple triangular array rather than linked node objects. A dedicated test asserts the node count is quadratic, turning the efficiency argument into a verified property.
+Pricing rate-sensitive instruments (e.g. callable bonds) needs a model of how rates evolve. A binomial short-rate tree provides one — and making it *recombining* (up-then-down lands on the same node as down-then-up, since `r·u·d = r·d·u`) collapses the node count from `2^n` to `(n+1)(n+2)/2 ≈ n²/2`. That is the difference between a 30-step tree having a billion nodes versus a few hundred, and it lets the tree be stored as a triangular array rather than linked node objects. Rates evolve by multiplicative factors, so the factors must be positive — negative rates are expressed through a negative `r0`, never a negative factor, which a validation check enforces. A dedicated test asserts the node count is quadratic, turning the efficiency argument into a verified property.
 
-對利率敏感的工具(如可贖回債券)定價,需要一個利率如何演化的模型。二叉短期利率樹提供了這個模型——而使其*重合*(上跳再下跳與下跳再上跳落在同一節點,因為 `r·u·d = r·d·u`)可將節點數從 `2^n` 壓縮到 `(n+1)(n+2)/2 ≈ n²/2`。這是「30 步的樹有十億個節點、還是幾百個」的差別,並讓樹能以簡單的三角陣列儲存,而非鏈結的節點物件。一個專門的測試斷言節點數為平方級,將效率論證轉化為可驗證的性質。
+對利率敏感的工具(如可贖回債券)定價,需要一個利率如何演化的模型。二叉短期利率樹提供了這個模型——而使其*重合*(上跳再下跳與下跳再上跳落在同一節點,因為 `r·u·d = r·d·u`)可將節點數從 `2^n` 壓縮到 `(n+1)(n+2)/2 ≈ n²/2`。這是「30 步的樹有十億個節點、還是幾百個」的差別,並讓樹能以三角陣列而非鏈結節點物件儲存。利率透過乘法因子演化,故因子必須為正——負利率由負的 `r0` 表達,而非負的因子,這由一項驗證強制執行。一個專門的測試斷言節點數為平方級,將效率論證轉化為可驗證的性質。
 
 ---
 
