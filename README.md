@@ -114,6 +114,18 @@ Redington immunization protects against *small, parallel* rate moves: matching d
 
 Redington 免疫保護的是*微小、平行*的利率移動：匹配存續期間使盈餘的一階項歸零，凸度條件使二階項非負——這是在當前殖利率附近成立的局部結果。全免疫更強但更受限：一筆被「一前一後」兩筆現金流夾住的負債，可對*任意*大小的平行移動受到保護。測試套件正是把這個區別編寫進去——一個專門的測試確認「夾擠式」兩債券組合即使在 ±200 個基點的衝擊下仍維持盈餘非負，而一般的 Redington 組合並不提供這種全域保證。圍繞兩個理論的邊界來設計測試，是對「理解」而非僅對「程式碼」的刻意驗證。
 
+### 11. Forward rates from no-arbitrage / 由無套利導出的遠期利率
+
+The forward rate for a future period is not independent data — it is implied by the spot curve through a no-arbitrage argument: investing to `t2` directly must equal investing to `t1` and rolling forward. Under continuous compounding this gives `f(t1,t2) = (r2·t2 − r1·t1)/(t2 − t1)`. The tests verify this by *self-consistency* rather than hard-coded numbers: discounting over a period at the forward rate must equal the ratio of spot discount factors, and on a flat curve every forward rate collapses to the spot rate.
+
+遠期利率並非獨立資料——它由即期曲線透過無套利論證隱含決定:直接投資到 `t2`,必須等於先投資到 `t1` 再向前滾動。在連續複利下得出 `f(t1,t2) = (r2·t2 − r1·t1)/(t2 − t1)`。測試以*自洽性*而非寫死的數字來驗證:以遠期利率折現一段期間,必須等於即期折現因子之比;而在平坦曲線上,每個遠期利率都收斂為即期利率。
+
+### 12. Recombining binomial tree: quadratic, not exponential / 重合二叉樹:平方級而非指數級
+
+Pricing rate-sensitive instruments (e.g. callable bonds) needs a model of how rates evolve. A binomial short-rate tree provides one — and making it *recombining* (up-then-down lands on the same node as down-then-up, since `r·u·d = r·d·u`) collapses the node count from `2^n` to `(n+1)(n+2)/2 ≈ n²/2`. That is the difference between a 30-step tree having a billion nodes versus a few hundred, and it lets the tree be stored as a simple triangular array rather than linked node objects. A dedicated test asserts the node count is quadratic, turning the efficiency argument into a verified property.
+
+對利率敏感的工具(如可贖回債券)定價,需要一個利率如何演化的模型。二叉短期利率樹提供了這個模型——而使其*重合*(上跳再下跳與下跳再上跳落在同一節點,因為 `r·u·d = r·d·u`)可將節點數從 `2^n` 壓縮到 `(n+1)(n+2)/2 ≈ n²/2`。這是「30 步的樹有十億個節點、還是幾百個」的差別,並讓樹能以簡單的三角陣列儲存,而非鏈結的節點物件。一個專門的測試斷言節點數為平方級,將效率論證轉化為可驗證的性質。
+
 ---
 
 ## Development Note / 開發說明
