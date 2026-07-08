@@ -28,7 +28,8 @@ src/alm/
 
 notebooks/                 # Visual walkthroughs / 視覺化導覽
 ├── 01_core.ipynb          # Curve, cash flow, risk / 曲線、現金流、風險
-└── 02_immunization.ipynb  # Immunization demo / 免疫化展示
+├── 02_immunization.ipynb  # Immunization demo / 免疫化展示
+└── 03_rate_tree.ipynb     # Rate tree & bonds with options / 利率樹與含選擇權債券
 ```
 
 ---
@@ -126,6 +127,12 @@ The forward rate for a future period is not independent data — it is implied b
 Pricing rate-sensitive instruments (e.g. callable bonds) needs a model of how rates evolve. A binomial short-rate tree provides one — and making it *recombining* (up-then-down lands on the same node as down-then-up, since `r·u·d = r·d·u`) collapses the node count from `2^n` to `(n+1)(n+2)/2 ≈ n²/2`. That is the difference between a 30-step tree having a billion nodes versus a few hundred, and it lets the tree be stored as a triangular array rather than linked node objects. Rates evolve by multiplicative factors, so the factors must be positive — negative rates are expressed through a negative `r0`, never a negative factor, which a validation check enforces. A dedicated test asserts the node count is quadratic, turning the efficiency argument into a verified property.
 
 對利率敏感的工具(如可贖回債券)定價,需要一個利率如何演化的模型。二叉短期利率樹提供了這個模型——而使其*重合*(上跳再下跳與下跳再上跳落在同一節點,因為 `r·u·d = r·d·u`)可將節點數從 `2^n` 壓縮到 `(n+1)(n+2)/2 ≈ n²/2`。這是「30 步的樹有十億個節點、還是幾百個」的差別,並讓樹能以三角陣列而非鏈結節點物件儲存。利率透過乘法因子演化,故因子必須為正——負利率由負的 `r0` 表達,而非負的因子,這由一項驗證強制執行。一個專門的測試斷言節點數為平方級,將效率論證轉化為可驗證的性質。
+
+### 13. Embedded options as dynamic programming on the tree / 嵌入式選擇權作為樹上的動態規劃
+
+Callable and putable bonds have path-dependent value: whether the option is exercised depends on where rates go, which deterministic discounting cannot capture. Backward induction handles this as dynamic programming — at each exercisable node the value becomes `min(hold, strike)` for a callable (the issuer minimizes the holder's value) or `max(hold, strike)` for a putable (the holder maximizes it). Callable and putable share one structure and differ only by min vs. max, so they are one function parameterized by option type. Two degeneracy tests anchor correctness: an unreachable strike must reproduce the plain-bond price exactly (cross-checked against the plain pricer), and the value ordering callable ≤ plain ≤ putable must hold.
+
+可贖回與可回售債券具有路徑相依的價值:選擇權是否行使,取決於利率走向,這是確定性折現無法捕捉的。後序回推以動態規劃處理此問題——在每個可行使節點,可贖回債券的價值變為 `min(持有, 履約價)`(發行方最小化持有人價值),可回售債券則為 `max(持有, 履約價)`(持有人最大化其價值)。可贖回與可回售共享同一結構,僅差在 min 與 max,故為同一個以選擇權類型參數化的函數。兩個退化測試錨定正確性:無法觸及的履約價必須精確重現普通債券價格(與普通定價器交叉驗證),且價值排序 callable ≤ plain ≤ putable 必須成立。
 
 ---
 
