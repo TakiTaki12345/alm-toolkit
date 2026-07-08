@@ -196,3 +196,101 @@ def price_bond(cashflow: CashFlow, tree: RateTree) -> float:
 
     # Root node holds today's price.
     return float(values[0])
+
+def price_bond_with_option(
+    cashflow: CashFlow,
+    tree: RateTree,
+    option_type: str,
+    schedule: dict[int, float],
+) -> float:
+    """Price a callable or putable bond by backward induction.
+
+    Identical to price_bond, but at each step in the option schedule the
+    node value is adjusted by an optimal-exercise decision:
+
+        callable (issuer's option): V = min(hold_value, strike)
+            The issuer redeems when rates fall (hold_value high), capping the
+            holder's upside — so the issuer minimizes the bond's value.
+
+        putable (holder's option):  V = max(hold_value, strike)
+            The holder sells back when rates rise (hold_value low), setting a
+            floor — so the holder maximizes the bond's value.
+
+    Callable and putable share one structure and differ only by min vs. max:
+    the same node-level optimal decision, mirrored by whose option it is. This
+    is exactly the kind of dynamic programming a tree's post-order traversal
+    expresses — each node's optimal choice depends on already-computed children.
+
+    Parameters
+    ----------
+    cashflow : CashFlow
+        The bond's underlying cash flows.
+    tree : RateTree
+        The short-rate tree to price against.
+    option_type : {"call", "put"}
+        "call" for issuer-callable (min), "put" for holder-putable (max).
+    schedule : dict[int, float]
+        Maps a tree step to the exercise (strike) price available at that
+        step, e.g. {3: 101.0, 4: 100.5, 5: 100.0}. Steps not in the dict
+        carry no exercise right.
+
+    Returns
+    -------
+    float
+        The bond's present value at the root node (today).
+    """
+    if option_type == "call":
+        decide = min
+    elif option_type == "put":
+        decide = max
+    else:
+        raise ValueError('option_type must be "call" or "put"')
+
+    n = tree.n_steps
+    dt = tree.dt
+    p = tree.p
+
+    # --- Align cash flows to tree steps (exact, no interpolation) ---------
+    cf_at_step = np.zeros(n + 1)
+    for t, amt in zip(cashflow.times, cashflow.amounts):
+        step_float = t / dt
+        step = round(step_float)
+        if abs(step_float - step) > 1e-9:
+            raise ValueError(
+                f"cash flow time {t} is not a multiple of dt={dt}; "
+                f"align the tree's dt to the cash flow schedule"
+            )
+        if step > n:
+            raise ValueError(
+                f"cash flow time {t} (step {step}) exceeds tree horizon "
+                f"n_steps={n}"
+            )
+        cf_at_step[step] += amt
+
+    # Validate the option schedule references real steps.
+    for step in schedule:
+        if not (0 <= step <= n):
+            raise ValueError(f"option step {step} is outside [0, {n}]")
+
+    # --- Backward induction with optimal exercise -------------------------
+    values = np.full(n + 1, cf_at_step[n])
+    # The terminal step may itself be exercisable.
+    if n in schedule:
+        strike = schedule[n]
+        values = np.array([decide(v, strike) for v in values])
+
+    for i in range(n - 1, -1, -1):
+        next_values = values
+        values = np.empty(i + 1)
+        for j in range(i + 1):
+            r = tree.short_rate(i, j)
+            discount = np.exp(-r * dt)
+            expected = p * next_values[j + 1] + (1.0 - p) * next_values[j]
+            hold_value = cf_at_step[i] + discount * expected
+            # Apply the optimal-exercise decision if this step is exercisable.
+            if i in schedule:
+                values[j] = decide(hold_value, schedule[i])
+            else:
+                values[j] = hold_value
+
+    return float(values[0])

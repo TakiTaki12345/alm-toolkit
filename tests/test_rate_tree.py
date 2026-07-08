@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from alm.applications.rate_tree import RateTree
+from alm.applications.rate_tree import RateTree, price_bond, price_bond_with_option
 
 
 def make_tree(n_steps=3, r0=0.05, u=1.1, d=0.9, p=0.5):
@@ -153,3 +153,93 @@ def test_rejects_cash_flow_beyond_horizon():
     bond = CashFlow(times=[5], amounts=[100])  # step 5 > n_steps 2
     with pytest.raises(ValueError):
         price_bond(bond, tree)
+
+def test_callable_degenerates_to_plain_when_strike_unreachable():
+    """A call price set impossibly high is never optimal to exercise, so the
+    callable bond must price identically to the plain bond.
+
+    This proves the option logic doesn't disturb pricing when the option is
+    worthless — cross-validated against the trusted price_bond.
+    """
+    tree = RateTree(r0=0.05, u=1.2, d=0.8, n_steps=5, p=0.5, dt=1.0)
+    bond = CashFlow(times=[1, 2, 3, 4, 5], amounts=[4, 4, 4, 4, 104])
+    # Call price of 1e9 is never below hold value, so min() never bites.
+    schedule = {3: 1e9, 4: 1e9, 5: 1e9}
+
+    callable_price = price_bond_with_option(bond, tree, "call", schedule)
+    plain_price = price_bond(bond, tree)
+    assert callable_price == pytest.approx(plain_price, rel=1e-12)
+
+
+def test_putable_degenerates_to_plain_when_strike_unreachable():
+    """A put price set impossibly low is never optimal to exercise, so the
+    putable bond must price identically to the plain bond."""
+    tree = RateTree(r0=0.05, u=1.2, d=0.8, n_steps=5, p=0.5, dt=1.0)
+    bond = CashFlow(times=[1, 2, 3, 4, 5], amounts=[4, 4, 4, 4, 104])
+    # Put price of 0 is never above hold value, so max() never bites.
+    schedule = {3: 0.0, 4: 0.0, 5: 0.0}
+
+    putable_price = price_bond_with_option(bond, tree, "put", schedule)
+    plain_price = price_bond(bond, tree)
+    assert putable_price == pytest.approx(plain_price, rel=1e-12)
+
+
+def test_callable_no_more_than_plain_no_less_than_putable_ordering():
+    """Option value ordering: callable <= plain <= putable.
+
+    The issuer's call can only reduce the bond's value to the holder; the
+    holder's put can only increase it. With the same realistic strikes, the
+    ordering must hold.
+    """
+    tree = RateTree(r0=0.05, u=1.15, d=0.87, n_steps=5, p=0.5, dt=1.0)
+    bond = CashFlow(times=[1, 2, 3, 4, 5], amounts=[4, 4, 4, 4, 104])
+    strikes = {3: 100.0, 4: 100.0, 5: 100.0}
+
+    plain = price_bond(bond, tree)
+    callable_price = price_bond_with_option(bond, tree, "call", strikes)
+    putable_price = price_bond_with_option(bond, tree, "put", strikes)
+
+    assert callable_price <= plain + 1e-9
+    assert putable_price >= plain - 1e-9
+    assert callable_price <= putable_price + 1e-9
+
+
+def test_callable_forced_exercise_zero_rate():
+    """With r0=0 (no discounting) and a call price below the plain value, the
+    issuer always calls, capping value at the call price plus any coupon paid
+    at that step.
+
+    A single terminal payment of 100 at step 2, callable at step 2 for 90.
+    With no discounting the hold value at step 2 is 100; the issuer calls,
+    so the node value is min(100, 90) = 90. Rolling back with zero rates, the
+    root value is 90.
+    """
+    tree = RateTree(r0=0.0, u=1.2, d=0.8, n_steps=2, p=0.5, dt=1.0)
+    bond = CashFlow(times=[2], amounts=[100])
+    schedule = {2: 90.0}
+    # At step 2 every node: min(100, 90) = 90. No discounting rolls 90 to root.
+    assert price_bond_with_option(bond, tree, "call", schedule) == pytest.approx(90.0)
+
+
+def test_putable_forced_exercise_zero_rate():
+    """Mirror of the callable case: with r0=0 and a put price above the plain
+    value, the holder always puts, flooring value at the put price."""
+    tree = RateTree(r0=0.0, u=1.2, d=0.8, n_steps=2, p=0.5, dt=1.0)
+    bond = CashFlow(times=[2], amounts=[100])
+    schedule = {2: 110.0}
+    # At step 2: max(100, 110) = 110. No discounting rolls 110 to root.
+    assert price_bond_with_option(bond, tree, "put", schedule) == pytest.approx(110.0)
+
+
+def test_rejects_invalid_option_type():
+    tree = RateTree(r0=0.05, u=1.2, d=0.8, n_steps=3, p=0.5, dt=1.0)
+    bond = CashFlow(times=[3], amounts=[100])
+    with pytest.raises(ValueError):
+        price_bond_with_option(bond, tree, "swap", {3: 100.0})
+
+
+def test_rejects_option_step_out_of_range():
+    tree = RateTree(r0=0.05, u=1.2, d=0.8, n_steps=3, p=0.5, dt=1.0)
+    bond = CashFlow(times=[3], amounts=[100])
+    with pytest.raises(ValueError):
+        price_bond_with_option(bond, tree, "call", {5: 100.0})  # step 5 > n=3
