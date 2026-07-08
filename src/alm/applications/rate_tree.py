@@ -120,3 +120,79 @@ class RateTree:
         for i, row in enumerate(self.rates):
             dense[i, :i + 1] = row
         return dense
+
+
+from alm.core.cashflow import CashFlow
+
+def price_bond(cashflow: CashFlow, tree: RateTree) -> float:
+    """Price a bond's fixed cash flows by backward induction on a rate tree.
+
+    The bond's value at each node is the risk-neutral expected value of its
+    two children, discounted one step at that node's short rate, plus any
+    cash flow paid at that step:
+
+        V(i, j) = CF(i) + exp(-r(i,j)*dt) * [ p*V(i+1, j+1) + (1-p)*V(i+1, j) ]
+
+    Starting from the known terminal values and folding backward to the root
+    is a post-order traversal of the tree: a node is computed only after its
+    children. On the recombining tree this reduces to a simple sweep from the
+    last level to the first.
+
+    Cash flow times must align with the tree's time grid (integer multiples
+    of dt); a misaligned time raises, keeping the pricer exact rather than
+    silently interpolating.
+
+    Parameters
+    ----------
+    cashflow : CashFlow
+        The bond's cash flows (times in years, amounts).
+    tree : RateTree
+        The short-rate tree to price against.
+
+    Returns
+    -------
+    float
+        The bond's present value at the root node (today).
+    """
+    n = tree.n_steps
+    dt = tree.dt
+    p = tree.p
+
+    # --- Align cash flows to tree steps (exact, no interpolation) ---------
+    # Map each cash flow time to a step index i = time / dt, verifying the
+    # time lands exactly on the grid (within floating tolerance).
+    cf_at_step = np.zeros(n + 1)
+    for t, amt in zip(cashflow.times, cashflow.amounts):
+        step_float = t / dt
+        step = round(step_float)
+        if abs(step_float - step) > 1e-9:
+            raise ValueError(
+                f"cash flow time {t} is not a multiple of dt={dt}; "
+                f"align the tree's dt to the cash flow schedule"
+            )
+        if step > n:
+            raise ValueError(
+                f"cash flow time {t} (step {step}) exceeds tree horizon "
+                f"n_steps={n}"
+            )
+        cf_at_step[step] += amt
+
+    # --- Backward induction (post-order sweep) ----------------------------
+    # Terminal layer: value at each node is just the cash flow at the final
+    # step (there are no children beyond the horizon).
+    values = np.full(n + 1, cf_at_step[n])
+
+    # Fold from the second-to-last layer back to the root. At step i there
+    # are i+1 nodes (j = 0..i); each looks one step forward to its up-child
+    # (j+1) and down-child (j) in the layer we just computed.
+    for i in range(n - 1, -1, -1):
+        next_values = values  # values currently holds layer i+1
+        values = np.empty(i + 1)
+        for j in range(i + 1):
+            r = tree.short_rate(i, j)           # enforce tree's indexing
+            discount = np.exp(-r * dt)
+            expected = p * next_values[j + 1] + (1.0 - p) * next_values[j]
+            values[j] = cf_at_step[i] + discount * expected
+
+    # Root node holds today's price.
+    return float(values[0])
