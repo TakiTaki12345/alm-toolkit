@@ -19,17 +19,20 @@ The codebase follows a **src layout** with a strict one-way dependency rule: `ap
 ```text
 src/alm/
 ├── core/                  # Application-agnostic primitives / 與應用無關的基礎元件
-│   ├── curve.py           # Yield curve & discounting / 殖利率曲線與折現
+│   ├── curve.py           # Yield curve, discounting, forward rates / 殖利率曲線、折現、遠期利率
 │   ├── cashflow.py        # Cash flow representation & PV / 現金流表達與現值
-│   └── risk.py            # Duration & convexity / 存續期間與凸度
+│   ├── risk.py            # Duration & convexity / 存續期間與凸度
+│   └── mortality.py       # Life tables & survival probabilities / 生命表與存活機率
 └── applications/          # Built on top of core / 建構於核心之上
     ├── immunization.py    # Liability-driven immunization / 負債驅動的免疫化
-    └── rate_tree.py       # Binomial short-rate tree / 二叉短期利率樹
+    ├── rate_tree.py       # Binomial short-rate tree & option-embedded bonds / 二叉利率樹與含選擇權債券
+    └── life_insurance.py  # Insurance & annuity pricing / 壽險與年金定價
 
 notebooks/                 # Visual walkthroughs / 視覺化導覽
 ├── 01_core.ipynb          # Curve, cash flow, risk / 曲線、現金流、風險
 ├── 02_immunization.ipynb  # Immunization demo / 免疫化展示
-└── 03_rate_tree.ipynb     # Rate tree & bonds with options / 利率樹與含選擇權債券
+├── 03_rate_tree.ipynb     # Rate tree & bonds with options / 利率樹與含選擇權債券
+└── 04_life_insurance.ipynb # Mortality & life insurance / 死亡率與壽險
 ```
 
 ---
@@ -134,6 +137,11 @@ Callable and putable bonds have path-dependent value: whether the option is exer
 
 可贖回與可回售債券具有路徑相依的價值:選擇權是否行使,取決於利率走向,這是確定性折現無法捕捉的。後序回推以動態規劃處理此問題——在每個可行使節點,可贖回債券的價值變為 `min(持有, 履約價)`(發行方最小化持有人價值),可回售債券則為 `max(持有, 履約價)`(持有人最大化其價值)。可贖回與可回售共享同一結構,僅差在 min 與 max,故為同一個以選擇權類型參數化的函數。兩個退化測試錨定正確性:無法觸及的履約價必須精確重現普通債券價格(與普通定價器交叉驗證),且價值排序 callable ≤ plain ≤ putable 必須成立。
 
+### 14. Actuarial present value: mortality meets discounting / 精算現值:死亡率與折現的結合
+
+Life insurance pricing joins the two foundational primitives — a mortality table and a yield curve — into one shape: `APV = Σ discount(k) · probability(k) · benefit(k)`. Insurance weights each payment by the probability of *dying*, annuities by the probability of *surviving*; the products are mirror images, and a shared core summation is wrapped by thin per-product functions (the same parameterized-core pattern used elsewhere). The two are linked by the actuarial identity `A_x = 1 − d·ä_x`, which holds on a flat curve — a test verifies it, cross-checking that the insurance and annuity pricers agree. Timing conventions (insurance pays at end of year of death; annuity-due pays at the start of each year) are made explicit to avoid off-by-one errors.
+
+壽險定價將兩個基礎元件——生命表與殖利率曲線——結合為單一形式:`APV = Σ 折現(k) · 機率(k) · 給付(k)`。壽險以*死亡*機率為每筆給付加權,年金則以*存活*機率;兩者互為鏡像,共用的核心加總由各產品的薄包裝函數包覆(與他處相同的參數化核心模式)。兩者由精算恆等式 `A_x = 1 − d·ä_x` 連結,此式在平坦曲線上成立——一項測試驗證它,交叉檢查壽險與年金定價器彼此一致。時點慣例(壽險於死亡當年年末給付;期初年金於每年年初給付)被明確標示,以避免差一期的錯誤。
 ---
 
 ## Development Note / 開發說明
